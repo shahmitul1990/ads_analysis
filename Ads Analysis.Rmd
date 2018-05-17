@@ -1,0 +1,161 @@
+---
+title: "Ads Analysis"
+author: "Mitul Shah"
+date: "8/8/2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Loading the data
+
+```{r}
+
+## Loading the data
+ad_table <- read.csv("ad_table.csv")
+
+```
+
+## Checking Data Quality
+
+```{r}
+
+## Load the library dplyr
+library(dplyr)
+
+## Looking into possible data quality issues
+unclean_data <- filter(ad_table, shown == 0 | clicked == 0 | converted == 0 | avg_cost_per_click == 0 | total_revenue == 0)
+
+## Remove ad group 25 (since converted variable is 0 for all rows in group 25; it's a bug)
+ad_table <- filter(ad_table, ad != "ad_group_25")
+
+## Replace zeroes with mean of value 1 row above and 1 row below for all columns
+for(i in 2:nrow(ad_table)) {
+  for(j in 2:6) {
+    if(ad_table[[i, j]] == 0) {
+      ad_table[[i, j]] = (ad_table[[i - 1, j]] + ad_table[[i + 1, j]])/2
+    } else {
+      ad_table[[i, j]] = ad_table[[i, j]]
+    }
+  }
+}
+  
+## Convert the class of date variable to date
+ad_table$date <- as.Date(ad_table$date)
+
+```
+
+
+## If you had to identify the 5 best ad groups, which ones would they be? Which metric did you choose to identify the best ad groups? Why? Explain the pros of your metric as well as the possible cons.
+
+The goal here is to get more customers, i.e. increase engagement. We can use click through rate (CTR) to identify the best ad groups here. 
+
+Pros:
+
+1. Getting more traffic
+2. Increase Quality Scores
+
+Cons:
+
+1. Higher CTR only helps in getting more traffic; doesn't necessarily mean high quality traffic (which lead to high conversion rate)
+2. CTR doesn't account for ad frauds this means that the click could come from a willing human, a bot, or could just be down to human error. Take mobile devices, for example, on which 'fat fingers' account for 50% of mobile clicks.
+
+CPI (Conversion per Impression) is a better metric to use than CTR when your goal is to get high quality traffic. 
+
+```{r}
+
+## Load library
+library(dplyr)
+
+## CTR
+data_to_find_best_ad_groups <- ad_table %>% group_by(ad) %>% summarise(shown = sum(shown), clicked = sum(clicked), ctr = clicked / shown) %>% arrange(desc(ctr))
+
+## Top 5 ad groups
+head(select(data_to_find_best_ad_groups, ad, ctr), n = 5)
+
+```
+
+
+## For each group, predict how many ads will be shown on Dec, 15 (assume each ad group keeps following its trend).
+
+```{r}
+
+## Load dplyr library
+library(dplyr)
+
+## Subset only Ads Shown 
+ads_shown <- select(ad_table, date, shown, ad)
+
+```
+
+
+
+## Cluster ads into 3 groups: the ones whose avg_cost_per_click is going up, the ones whose avg_cost_per_click is flat and the ones whose avg_cost_per_click is going down.
+
+```{r}
+
+## Load dplyr library
+library(dplyr)
+
+## Subset data having only date, average cost per click and ad
+data_to_cluster <- select(ad_table, date, avg_cost_per_click, ad)
+
+## Loading tidyr
+library(tidyr)
+
+## Converting video count data to wide format
+wide_data_to_cluster <- reshape(data_to_cluster, idvar = "ad", timevar = "date", direction = "wide")
+  
+## Replace missing values 
+for(i in 1:nrow(wide_data_to_cluster)) {
+  for(j in 2:ncol(wide_data_to_cluster)) {
+    if(is.na(wide_data_to_cluster[[i, j]] == TRUE)) {
+      wide_data_to_cluster[[i, j]] = (wide_data_to_cluster[[i, j - 1]] + wide_data_to_cluster[[i, j + 1]])/2
+    } else {
+      wide_data_to_cluster[[i, j]] = wide_data_to_cluster[[i, j]]
+    }
+  }
+}
+
+## Calculate proportion of days with increase
+
+## Initialize proportion of days with increase
+wide_data_to_cluster$proportion_of_days_with_increase <- 0
+  
+## Calculate number of days with increase in avg cost per click
+for(i in 1:nrow(wide_data_to_cluster)) {
+  for(j in 2:(ncol(wide_data_to_cluster)-2)) {
+    if(wide_data_to_cluster[[i, j]] < wide_data_to_cluster[[i, j+1]]) {
+      wide_data_to_cluster[[i, 55]] = wide_data_to_cluster[[i, 55]] + 1
+    } else {
+      wide_data_to_cluster[[i, 55]] = wide_data_to_cluster[[i, 55]]
+    }
+  }
+}
+
+## Divide the number of days by total days
+wide_data_to_cluster$proportion_of_days_with_increase <- wide_data_to_cluster$proportion_of_days_with_increase/52
+
+## k-means to cluster ads
+kmeans(wide_data_to_cluster[,55], 3, alg="Lloyd")
+
+## Distance matrix
+ads.dist <- dist(wide_data_to_cluster[,55], method = "euclidean", diag = FALSE, upper = FALSE, p = 2)
+
+## Hierarchical Clustering using Ward's method
+ads.hclust <- hclust(ads.dist, method = "ward.D")
+
+## Visualize the dendogram
+plot(ads.hclust, labels = wide_data_to_cluster$ad, main='Dendogram')
+
+## Forming 3 clusters
+groups.3 <- cutree(ads.hclust, 3)
+
+## Looking at the items in all 12 clusters
+sapply(unique(groups.3), function(g)wide_data_to_cluster$ad[groups.3 == g])
+
+```
+
+
+
+
